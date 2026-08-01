@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cat animation</title>
+<style>
+  :root{
+    --bone: #ece6d6;
+    --bone-shade: #b9b19c;
+    --bone-dark: #8a8371;
+    --socket: #050505;
+    --glow: #eef2ff;
+  }
+  html, body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:
+      radial-gradient(1200px 800px at 50% 40%, #14161c 0%, #0a0b0e 55%, #050506 100%);
+    overflow:hidden;
+    cursor: crosshair;
+  }
+  #stage{
+    position:fixed; inset:0; width:100vw; height:100vh; display:block;
+  }
+  /* subtle aged-bone grain, applied once via filter, reused by reference */
+  .bone{
+    fill: var(--bone);
+    stroke: var(--bone-dark);
+    stroke-width: 1;
+  }
+  .bone-shade{
+    fill: var(--bone-shade);
+  }
+  .joint{
+    fill: var(--bone);
+    stroke: var(--bone-dark);
+    stroke-width: 1;
+  }
+  .socket{
+    fill: var(--socket);
+  }
+  .pupil{
+    fill: var(--glow);
+    filter: url(#softGlow);
+  }
+  .grainy{
+    filter: url(#boneGrain);
+  }
+</style>
+</head>
+<body>
+<svg id="stage" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- aged bone texture: fine turbulence etched subtly into bone fills -->
+    <filter id="boneGrain" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="noise"/>
+      <feColorMatrix in="noise" type="matrix"
+        values="0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0.05 0" result="fadedNoise"/>
+      <feComposite in="fadedNoise" in2="SourceGraphic" operator="in" result="grain"/>
+      <feBlend in="SourceGraphic" in2="grain" mode="multiply"/>
+    </filter>
+    <filter id="softGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="1.2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="shadowBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+
+  <!-- ambient contact shadow, sits beneath everything, resized/faded by JS -->
+  <ellipse id="shadow" cx="0" cy="0" rx="70" ry="18" fill="#000" opacity="0.45" filter="url(#shadowBlur)"/>
+
+  <!-- ===================== LEGS (drawn in world space, back legs first so they sit behind torso) ===================== -->
+  <g id="legBackLeft" class="grainy"></g>
+  <g id="legBackRight" class="grainy"></g>
+
+  <!-- ===================== TAIL (drawn behind hips, in front of back legs' upper segments visually is fine either way) ===================== -->
+  <g id="tail" class="grainy"></g>
+
+  <!-- ===================== HIP / PELVIS / REAR SPINE GROUP ===================== -->
+  <g id="hipGroup" class="grainy">
+    <!-- pelvis: a butterfly / wing shaped bone -->
+    <path class="bone" d="M -14,-16 C -26,-14 -30,-4 -20,0 C -30,4 -26,14 -14,16
+                           C -6,10 -4,3 0,0 C -4,-3 -6,-10 -14,-16 Z"/>
+    <path class="bone" d="M 14,-16 C 26,-14 30,-4 20,0 C 30,4 26,14 14,16
+                           C 6,10 4,3 0,0 C 4,-3 6,-10 14,-16 Z"/>
+    <circle class="joint" cx="0" cy="0" r="4"/>
+  </g>
+
+  <!-- ===================== FRONT LEGS ===================== -->
+  <g id="legFrontLeft" class="grainy"></g>
+  <g id="legFrontRight" class="grainy"></g>
+
+  <!-- spine link between hip and chest pivots, redrawn each frame as a soft curve -->
+  <path id="spineLink" class="bone" d="" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+  <!-- ===================== CHEST / SHOULDER GIRDLE / RIBCAGE GROUP ===================== -->
+  <g id="chestGroup" class="grainy">
+    <!-- shoulder girdle -->
+    <path class="bone" d="M -6,-20 C -16,-18 -18,-8 -8,0 C -18,8 -16,18 -6,20
+                           C 0,12 2,4 6,0 C 2,-4 0,-12 -6,-20 Z" transform="translate(4,0)"/>
+    <!-- ribcage: a set of paired curved ribs radiating from the spine -->
+    <g id="ribs" class="bone-shade" stroke="var(--bone-dark)" stroke-width="1.1" fill="none">
+      <path d="M 8,0 C 4,-10 -2,-14 -10,-13"/>
+      <path d="M 8,0 C 4,10 -2,14 -10,13"/>
+      <path d="M 2,0 C -2,-13 -9,-18 -18,-17"/>
+      <path d="M 2,0 C -2,13 -9,18 -18,17"/>
+      <path d="M -4,0 C -8,-13 -15,-17 -23,-15"/>
+      <path d="M -4,0 C -8,13 -15,17 -23,15"/>
+      <path d="M -10,0 C -13,-11 -18,-14 -25,-12"/>
+      <path d="M -10,0 C -13,11 -18,14 -25,12"/>
+      <path d="M -16,0 C -18,-8 -21,-10 -26,-8"/>
+      <path d="M -16,0 C -18,8 -21,10 -26,8"/>
+    </g>
+    <circle class="joint" cx="0" cy="0" r="4"/>
+  </g>
+
+  <!-- ===================== HEAD GROUP (skull + jaw, independently rotated) ===================== -->
+  <g id="headGroup" class="grainy">
+    <!-- neck vertebrae, small chain, purely decorative/static within head group -->
+    <circle class="joint" cx="-14" cy="0" r="3"/>
+    <circle class="joint" cx="-8" cy="0" r="3.2"/>
+    <!-- skull -->
+    <path class="bone" d="M -6,-11 C 6,-13 18,-9 24,0 C 18,9 6,13 -6,11
+                           C -10,7 -10,-7 -6,-11 Z"/>
+    <!-- eye sockets -->
+    <ellipse class="socket" id="eyeSocketL" cx="4" cy="-5" rx="3.4" ry="3"/>
+    <ellipse class="socket" id="eyeSocketR" cx="4" cy="5" rx="3.4" ry="3"/>
+    <circle class="pupil" id="pupilL" cx="5" cy="-5" r="1"/>
+    <circle class="pupil" id="pupilR" cx="5" cy="5" r="1"/>
+    <!-- ears (thin bone flanges) -->
+    <path class="bone-shade" stroke="var(--bone-dark)" stroke-width="1" d="M -2,-10 L -8,-19 L 3,-13 Z" id="earL"/>
+    <path class="bone-shade" stroke="var(--bone-dark)" stroke-width="1" d="M -2,10 L -8,19 L 3,13 Z" id="earR"/>
+    <!-- jaw, hinged separately so it can animate later -->
+    <g id="jawGroup">
+      <path class="bone" d="M -4,-6 C 8,-7 20,-4 23,0 C 20,4 8,7 -4,6
+                             C -6,3 -6,-3 -4,-6 Z" opacity="0.9" transform="translate(0,3) scale(0.82)"/>
+    </g>
+    <circle class="joint" cx="24" cy="0" r="1.6"/>
+  </g>
+</svg>
+<script>
+
+const svg = document.getElementById('stage');
+
+function resize(){
+  svg.setAttribute('width', window.innerWidth);
+  svg.setAttribute('height', window.innerHeight);
+  svg.setAttribute('viewBox', `0 0 ${window.innerWidth} ${window.innerHeight}`);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Resting pose placeholder: park the rig in the middle of the screen
+const bodyX = window.innerWidth / 2;
+const bodyY = window.innerHeight / 2;
+
+document.getElementById('chestGroup').setAttribute('transform', `translate(${bodyX + 20},${bodyY})`);
+document.getElementById('hipGroup').setAttribute('transform', `translate(${bodyX - 35},${bodyY})`);
+document.getElementById('headGroup').setAttribute('transform', `translate(${bodyX + 55},${bodyY})`);
+document.getElementById('spineLink').setAttribute('d', `M ${bodyX - 35},${bodyY} Q ${bodyX - 7},${bodyY} ${bodyX + 20},${bodyY}`);
+document.getElementById('shadow').setAttribute('cx', bodyX);
+document.getElementById('shadow').setAttribute('cy', bodyY + 30);
+</script>
+</body>
+</html>
