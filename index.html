@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Cat animation</title>
+<title>Skeleton Cat</title>
 <style>
   :root{
     --bone: #ece6d6;
@@ -21,7 +21,6 @@
   #stage{
     position:fixed; inset:0; width:100vw; height:100vh; display:block;
   }
-  /* subtle aged-bone grain, applied once via filter, reused by reference */
   .bone{
     fill: var(--bone);
     stroke: var(--bone-dark);
@@ -50,7 +49,6 @@
 <body>
 <svg id="stage" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- aged bone texture: fine turbulence etched subtly into bone fills -->
     <filter id="boneGrain" x="-20%" y="-20%" width="140%" height="140%">
       <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="noise"/>
       <feColorMatrix in="noise" type="matrix"
@@ -73,19 +71,14 @@
     </filter>
   </defs>
 
-  <!-- ambient contact shadow, sits beneath everything, resized/faded by JS -->
   <ellipse id="shadow" cx="0" cy="0" rx="70" ry="18" fill="#000" opacity="0.45" filter="url(#shadowBlur)"/>
 
-  <!-- ===================== LEGS (drawn in world space, back legs first so they sit behind torso) ===================== -->
   <g id="legBackLeft" class="grainy"></g>
   <g id="legBackRight" class="grainy"></g>
 
-  <!-- ===================== TAIL (drawn behind hips, in front of back legs' upper segments visually is fine either way) ===================== -->
   <g id="tail" class="grainy"></g>
 
-  <!-- ===================== HIP / PELVIS / REAR SPINE GROUP ===================== -->
   <g id="hipGroup" class="grainy">
-    <!-- pelvis: a butterfly / wing shaped bone -->
     <path class="bone" d="M -14,-16 C -26,-14 -30,-4 -20,0 C -30,4 -26,14 -14,16
                            C -6,10 -4,3 0,0 C -4,-3 -6,-10 -14,-16 Z"/>
     <path class="bone" d="M 14,-16 C 26,-14 30,-4 20,0 C 30,4 26,14 14,16
@@ -93,19 +86,14 @@
     <circle class="joint" cx="0" cy="0" r="4"/>
   </g>
 
-  <!-- ===================== FRONT LEGS ===================== -->
   <g id="legFrontLeft" class="grainy"></g>
   <g id="legFrontRight" class="grainy"></g>
 
-  <!-- spine link between hip and chest pivots, redrawn each frame as a soft curve -->
   <path id="spineLink" class="bone" d="" stroke-width="5" fill="none" stroke-linecap="round"/>
 
-  <!-- ===================== CHEST / SHOULDER GIRDLE / RIBCAGE GROUP ===================== -->
   <g id="chestGroup" class="grainy">
-    <!-- shoulder girdle -->
     <path class="bone" d="M -6,-20 C -16,-18 -18,-8 -8,0 C -18,8 -16,18 -6,20
                            C 0,12 2,4 6,0 C 2,-4 0,-12 -6,-20 Z" transform="translate(4,0)"/>
-    <!-- ribcage: a set of paired curved ribs radiating from the spine -->
     <g id="ribs" class="bone-shade" stroke="var(--bone-dark)" stroke-width="1.1" fill="none">
       <path d="M 8,0 C 4,-10 -2,-14 -10,-13"/>
       <path d="M 8,0 C 4,10 -2,14 -10,13"/>
@@ -121,23 +109,17 @@
     <circle class="joint" cx="0" cy="0" r="4"/>
   </g>
 
-  <!-- ===================== HEAD GROUP (skull + jaw, independently rotated) ===================== -->
   <g id="headGroup" class="grainy">
-    <!-- neck vertebrae, small chain, purely decorative/static within head group -->
     <circle class="joint" cx="-14" cy="0" r="3"/>
     <circle class="joint" cx="-8" cy="0" r="3.2"/>
-    <!-- skull -->
     <path class="bone" d="M -6,-11 C 6,-13 18,-9 24,0 C 18,9 6,13 -6,11
                            C -10,7 -10,-7 -6,-11 Z"/>
-    <!-- eye sockets -->
     <ellipse class="socket" id="eyeSocketL" cx="4" cy="-5" rx="3.4" ry="3"/>
     <ellipse class="socket" id="eyeSocketR" cx="4" cy="5" rx="3.4" ry="3"/>
     <circle class="pupil" id="pupilL" cx="5" cy="-5" r="1"/>
     <circle class="pupil" id="pupilR" cx="5" cy="5" r="1"/>
-    <!-- ears (thin bone flanges) -->
     <path class="bone-shade" stroke="var(--bone-dark)" stroke-width="1" d="M -2,-10 L -8,-19 L 3,-13 Z" id="earL"/>
     <path class="bone-shade" stroke="var(--bone-dark)" stroke-width="1" d="M -2,10 L -8,19 L 3,13 Z" id="earR"/>
-    <!-- jaw, hinged separately so it can animate later -->
     <g id="jawGroup">
       <path class="bone" d="M -4,-6 C 8,-7 20,-4 23,0 C 20,4 8,7 -4,6
                              C -6,3 -6,-3 -4,-6 Z" opacity="0.9" transform="translate(0,3) scale(0.82)"/>
@@ -157,16 +139,147 @@ function resize(){
 window.addEventListener('resize', resize);
 resize();
 
-// Resting pose placeholder: park the rig in the middle of the screen
-const bodyX = window.innerWidth / 2;
-const bodyY = window.innerHeight / 2;
+// ---------------------------------------------------------------------
+// Small math utilities
+// ---------------------------------------------------------------------
+const TAU = Math.PI * 2;
+function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
+function lerp(a, b, t){ return a + (b - a) * t; }
 
-document.getElementById('chestGroup').setAttribute('transform', `translate(${bodyX + 20},${bodyY})`);
-document.getElementById('hipGroup').setAttribute('transform', `translate(${bodyX - 35},${bodyY})`);
-document.getElementById('headGroup').setAttribute('transform', `translate(${bodyX + 55},${bodyY})`);
-document.getElementById('spineLink').setAttribute('d', `M ${bodyX - 35},${bodyY} Q ${bodyX - 7},${bodyY} ${bodyX + 20},${bodyY}`);
-document.getElementById('shadow').setAttribute('cx', bodyX);
-document.getElementById('shadow').setAttribute('cy', bodyY + 30);
+function angleDiff(a, b){
+  let d = (b - a) % TAU;
+  if (d > Math.PI) d -= TAU;
+  if (d < -Math.PI) d += TAU;
+  return d;
+}
+
+// ---------------------------------------------------------------------
+// Input: track the cursor and how long it has been idle.
+// ---------------------------------------------------------------------
+const input = {
+  x: window.innerWidth / 2,
+  y: window.innerHeight / 2,
+  lastMoveTime: performance.now(),
+};
+function onPointerMove(e){
+  const x = e.touches ? e.touches[0].clientX : e.clientX;
+  const y = e.touches ? e.touches[0].clientY : e.clientY;
+  if (x !== input.x || y !== input.y){
+    input.x = x;
+    input.y = y;
+    input.lastMoveTime = performance.now();
+  }
+}
+window.addEventListener('mousemove', onPointerMove);
+window.addEventListener('touchmove', onPointerMove, { passive: true });
+
+// ---------------------------------------------------------------------
+// Body: the cat's core position/orientation, driven by a simple steering
+// system (seek target, accelerate, damp, limit turn rate) rather than
+// ever being set directly. This is what gives the motion weight and
+// momentum instead of feeling like a cursor-locked game character.
+// ---------------------------------------------------------------------
+const body = {
+  x: window.innerWidth / 2,
+  y: window.innerHeight / 2,
+  angle: 0,     
+  speed: 0,     
+  angVel: 0,   
+};
+
+const motion = {
+  maxSpeed: 260,      
+  accel: 420,        
+  decel: 520,         
+  maxTurnRate: 3.4,  
+  turnDamping: 9,      
+  arriveRadius: 70,   
+  stopRadius: 26,      
+};
+
+function updateSteering(dt){
+  const dx = input.x - body.x;
+  const dy = input.y - body.y;
+  const dist = Math.hypot(dx, dy);
+  const targetAngle = Math.atan2(dy, dx);
+
+  // Desired speed shrinks smoothly as we approach the target (arrival behavior) instead of running at full speed then slamming to a stop.
+  let desiredSpeed = motion.maxSpeed;
+  if (dist < motion.arriveRadius){
+    desiredSpeed = motion.maxSpeed * clamp((dist - motion.stopRadius) / (motion.arriveRadius - motion.stopRadius), 0, 1);
+  }
+
+  // A cat doesn't accelerate hard toward something behind it — it turns first. So desired speed also tapers when the target is far off-angle.
+  const facingError = Math.abs(angleDiff(body.angle, targetAngle));
+  const alignment = clamp(1 - facingError / (Math.PI * 0.7), 0.15, 1);
+  desiredSpeed *= alignment;
+
+  // Accelerate/decelerate toward the desired speed with momentum, never snapping straight to it.
+  const rate = desiredSpeed > body.speed ? motion.accel : motion.decel;
+  body.speed += clamp(desiredSpeed - body.speed, -rate * dt, rate * dt);
+  body.speed = clamp(body.speed, 0, motion.maxSpeed);
+
+  // Turning: spring the angular velocity toward the angle we need, capped by a max turn rate so the cat banks through a turn instead of teleporting its heading.
+  if (dist > 1){
+    const wanted = clamp(angleDiff(body.angle, targetAngle) * motion.turnDamping, -motion.maxTurnRate, motion.maxTurnRate);
+    body.angVel = lerp(body.angVel, wanted, 1 - Math.exp(-10 * dt));
+  } else {
+    body.angVel = lerp(body.angVel, 0, 1 - Math.exp(-6 * dt));
+  }
+  body.angle += body.angVel * dt;
+
+  body.x += Math.cos(body.angle) * body.speed * dt;
+  body.y += Math.sin(body.angle) * body.speed * dt;
+}
+
+const chestGroup = document.getElementById('chestGroup');
+const hipGroup = document.getElementById('hipGroup');
+const headGroup = document.getElementById('headGroup');
+const spineLink = document.getElementById('spineLink');
+const shadow = document.getElementById('shadow');
+
+const RIG = {
+  chestOffset: 20, 
+  hipOffset: 35,     
+  headOffset: 35,    
+};
+
+function render(){
+  const cos = Math.cos(body.angle), sin = Math.sin(body.angle);
+  const chestX = body.x + cos * RIG.chestOffset;
+  const chestY = body.y + sin * RIG.chestOffset;
+  const hipX = body.x - cos * RIG.hipOffset;
+  const hipY = body.y - sin * RIG.hipOffset;
+  const headX = chestX + cos * RIG.headOffset;
+  const headY = chestY + sin * RIG.headOffset;
+
+  const deg = body.angle * 180 / Math.PI;
+  chestGroup.setAttribute('transform', `translate(${chestX},${chestY}) rotate(${deg})`);
+  hipGroup.setAttribute('transform', `translate(${hipX},${hipY}) rotate(${deg})`);
+  headGroup.setAttribute('transform', `translate(${headX},${headY}) rotate(${deg})`);
+
+  const midX = (chestX + hipX) / 2, midY = (chestY + hipY) / 2;
+  spineLink.setAttribute('d', `M ${hipX},${hipY} Q ${midX},${midY} ${chestX},${chestY}`);
+
+  shadow.setAttribute('cx', body.x);
+  shadow.setAttribute('cy', body.y + 4);
+}
+
+// ---------------------------------------------------------------------
+// Main loop
+// ---------------------------------------------------------------------
+let lastTime = performance.now();
+function tick(now){
+  let dt = (now - lastTime) / 1000;
+  dt = Math.min(dt, 1 / 30); // clamp huge gaps (tab switches, etc.)
+  lastTime = now;
+
+  updateSteering(dt);
+  render();
+
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
 </script>
 </body>
 </html>
