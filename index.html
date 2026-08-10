@@ -272,14 +272,10 @@ const RIG = {
 function render(){
   const chestCos = Math.cos(spine.chestAngle), chestSin = Math.sin(spine.chestAngle);
   const hipCos = Math.cos(spine.hipAngle), hipSin = Math.sin(spine.hipAngle);
-
-  // perpendicular (lateral) direction for the lean offset
   const chestPerpX = -chestSin, chestPerpY = chestCos;
   const hipPerpX = -hipSin, hipPerpY = hipCos;
-
   const chestX = body.x + chestCos * RIG.chestOffset + chestPerpX * spine.lean;
   const chestY = body.y + chestSin * RIG.chestOffset + chestPerpY * spine.lean;
-  // hips lean less than the chest -- they trail the bank as well as the turn
   const hipX = body.x - hipCos * RIG.hipOffset + hipPerpX * spine.lean * 0.4;
   const hipY = body.y - hipSin * RIG.hipOffset + hipPerpY * spine.lean * 0.4;
   const headX = chestX + Math.cos(spine.headAngle) * RIG.headOffset;
