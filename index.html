@@ -139,9 +139,7 @@ function resize(){
 window.addEventListener('resize', resize);
 resize();
 
-// ---------------------------------------------------------------------
 // Small math utilities
-// ---------------------------------------------------------------------
 const TAU = Math.PI * 2;
 function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
 function lerp(a, b, t){ return a + (b - a) * t; }
@@ -152,10 +150,13 @@ function angleDiff(a, b){
   if (d < -Math.PI) d += TAU;
   return d;
 }
+function angleLerp(a, b, t){ return a + angleDiff(a, b) * t; }
 
-// ---------------------------------------------------------------------
+function easeFactor(halfLifeSeconds, dt){
+  return 1 - Math.pow(0.5, dt / Math.max(halfLifeSeconds, 0.0001));
+}
+
 // Input: track the cursor and how long it has been idle.
-// ---------------------------------------------------------------------
 const input = {
   x: window.innerWidth / 2,
   y: window.innerHeight / 2,
@@ -173,12 +174,6 @@ function onPointerMove(e){
 window.addEventListener('mousemove', onPointerMove);
 window.addEventListener('touchmove', onPointerMove, { passive: true });
 
-// ---------------------------------------------------------------------
-// Body: the cat's core position/orientation, driven by a simple steering
-// system (seek target, accelerate, damp, limit turn rate) rather than
-// ever being set directly. This is what gives the motion weight and
-// momentum instead of feeling like a cursor-locked game character.
-// ---------------------------------------------------------------------
 const body = {
   x: window.innerWidth / 2,
   y: window.innerHeight / 2,
@@ -189,12 +184,12 @@ const body = {
 
 const motion = {
   maxSpeed: 260,      
-  accel: 420,        
+  accel: 420,         
   decel: 520,         
-  maxTurnRate: 3.4,  
+  maxTurnRate: 3.4,   
   turnDamping: 9,      
-  arriveRadius: 70,   
-  stopRadius: 26,      
+  arriveRadius: 70,    
+  stopRadius: 26,     
 };
 
 function updateSteering(dt){
@@ -203,23 +198,19 @@ function updateSteering(dt){
   const dist = Math.hypot(dx, dy);
   const targetAngle = Math.atan2(dy, dx);
 
-  // Desired speed shrinks smoothly as we approach the target (arrival behavior) instead of running at full speed then slamming to a stop.
   let desiredSpeed = motion.maxSpeed;
   if (dist < motion.arriveRadius){
     desiredSpeed = motion.maxSpeed * clamp((dist - motion.stopRadius) / (motion.arriveRadius - motion.stopRadius), 0, 1);
   }
 
-  // A cat doesn't accelerate hard toward something behind it — it turns first. So desired speed also tapers when the target is far off-angle.
   const facingError = Math.abs(angleDiff(body.angle, targetAngle));
   const alignment = clamp(1 - facingError / (Math.PI * 0.7), 0.15, 1);
   desiredSpeed *= alignment;
 
-  // Accelerate/decelerate toward the desired speed with momentum, never snapping straight to it.
   const rate = desiredSpeed > body.speed ? motion.accel : motion.decel;
   body.speed += clamp(desiredSpeed - body.speed, -rate * dt, rate * dt);
   body.speed = clamp(body.speed, 0, motion.maxSpeed);
 
-  // Turning: spring the angular velocity toward the angle we need, capped by a max turn rate so the cat banks through a turn instead of teleporting its heading.
   if (dist > 1){
     const wanted = clamp(angleDiff(body.angle, targetAngle) * motion.turnDamping, -motion.maxTurnRate, motion.maxTurnRate);
     body.angVel = lerp(body.angVel, wanted, 1 - Math.exp(-10 * dt));
@@ -230,6 +221,40 @@ function updateSteering(dt){
 
   body.x += Math.cos(body.angle) * body.speed * dt;
   body.y += Math.sin(body.angle) * body.speed * dt;
+}
+
+const spine = {
+  headAngle: 0,
+  chestAngle: 0,
+  hipAngle: 0,
+  lean: 0,       
+};
+
+const SPINE_TUNING = {
+  headHalfLife: 0.10,    
+  headMaxOffset: 1.9,    
+  chestHalfLife: 0.05,   
+  hipHalfLife: 0.22,      
+  leanHalfLife: 0.12,
+  leanPerAngVel: 9,       
+  maxLean: 10,
+};
+
+function updateSpine(dt){
+  const dx = input.x - (body.x);
+  const dy = input.y - (body.y);
+  const targetAngle = Math.atan2(dy, dx);
+
+  spine.chestAngle = angleLerp(spine.chestAngle, body.angle, easeFactor(SPINE_TUNING.chestHalfLife, dt));
+
+  spine.hipAngle = angleLerp(spine.hipAngle, spine.chestAngle, easeFactor(SPINE_TUNING.hipHalfLife, dt));
+
+  let wantHead = angleLerp(spine.headAngle, targetAngle, easeFactor(SPINE_TUNING.headHalfLife, dt));
+  const offset = clamp(angleDiff(spine.chestAngle, wantHead), -SPINE_TUNING.headMaxOffset, SPINE_TUNING.headMaxOffset);
+  spine.headAngle = spine.chestAngle + offset;
+
+  const wantLean = clamp(-body.angVel * SPINE_TUNING.leanPerAngVel, -SPINE_TUNING.maxLean, SPINE_TUNING.maxLean);
+  spine.lean = lerp(spine.lean, wantLean, easeFactor(SPINE_TUNING.leanHalfLife, dt));
 }
 
 const chestGroup = document.getElementById('chestGroup');
@@ -245,18 +270,24 @@ const RIG = {
 };
 
 function render(){
-  const cos = Math.cos(body.angle), sin = Math.sin(body.angle);
-  const chestX = body.x + cos * RIG.chestOffset;
-  const chestY = body.y + sin * RIG.chestOffset;
-  const hipX = body.x - cos * RIG.hipOffset;
-  const hipY = body.y - sin * RIG.hipOffset;
-  const headX = chestX + cos * RIG.headOffset;
-  const headY = chestY + sin * RIG.headOffset;
+  const chestCos = Math.cos(spine.chestAngle), chestSin = Math.sin(spine.chestAngle);
+  const hipCos = Math.cos(spine.hipAngle), hipSin = Math.sin(spine.hipAngle);
 
-  const deg = body.angle * 180 / Math.PI;
-  chestGroup.setAttribute('transform', `translate(${chestX},${chestY}) rotate(${deg})`);
-  hipGroup.setAttribute('transform', `translate(${hipX},${hipY}) rotate(${deg})`);
-  headGroup.setAttribute('transform', `translate(${headX},${headY}) rotate(${deg})`);
+  // perpendicular (lateral) direction for the lean offset
+  const chestPerpX = -chestSin, chestPerpY = chestCos;
+  const hipPerpX = -hipSin, hipPerpY = hipCos;
+
+  const chestX = body.x + chestCos * RIG.chestOffset + chestPerpX * spine.lean;
+  const chestY = body.y + chestSin * RIG.chestOffset + chestPerpY * spine.lean;
+  // hips lean less than the chest -- they trail the bank as well as the turn
+  const hipX = body.x - hipCos * RIG.hipOffset + hipPerpX * spine.lean * 0.4;
+  const hipY = body.y - hipSin * RIG.hipOffset + hipPerpY * spine.lean * 0.4;
+  const headX = chestX + Math.cos(spine.headAngle) * RIG.headOffset;
+  const headY = chestY + Math.sin(spine.headAngle) * RIG.headOffset;
+
+  chestGroup.setAttribute('transform', `translate(${chestX},${chestY}) rotate(${spine.chestAngle * 180 / Math.PI})`);
+  hipGroup.setAttribute('transform', `translate(${hipX},${hipY}) rotate(${spine.hipAngle * 180 / Math.PI})`);
+  headGroup.setAttribute('transform', `translate(${headX},${headY}) rotate(${spine.headAngle * 180 / Math.PI})`);
 
   const midX = (chestX + hipX) / 2, midY = (chestY + hipY) / 2;
   spineLink.setAttribute('d', `M ${hipX},${hipY} Q ${midX},${midY} ${chestX},${chestY}`);
@@ -265,16 +296,15 @@ function render(){
   shadow.setAttribute('cy', body.y + 4);
 }
 
-// ---------------------------------------------------------------------
 // Main loop
-// ---------------------------------------------------------------------
 let lastTime = performance.now();
 function tick(now){
   let dt = (now - lastTime) / 1000;
-  dt = Math.min(dt, 1 / 30); // clamp huge gaps (tab switches, etc.)
+  dt = Math.min(dt, 1 / 30); 
   lastTime = now;
 
   updateSteering(dt);
+  updateSpine(dt);
   render();
 
   requestAnimationFrame(tick);
