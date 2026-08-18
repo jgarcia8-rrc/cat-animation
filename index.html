@@ -128,7 +128,6 @@
   </g>
 </svg>
 <script>
-
 const svg = document.getElementById('stage');
 
 function resize(){
@@ -139,7 +138,6 @@ function resize(){
 window.addEventListener('resize', resize);
 resize();
 
-// Small math utilities
 const TAU = Math.PI * 2;
 function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
 function lerp(a, b, t){ return a + (b - a) * t; }
@@ -156,7 +154,6 @@ function easeFactor(halfLifeSeconds, dt){
   return 1 - Math.pow(0.5, dt / Math.max(halfLifeSeconds, 0.0001));
 }
 
-// Input: track the cursor and how long it has been idle.
 const input = {
   x: window.innerWidth / 2,
   y: window.innerHeight / 2,
@@ -177,19 +174,19 @@ window.addEventListener('touchmove', onPointerMove, { passive: true });
 const body = {
   x: window.innerWidth / 2,
   y: window.innerHeight / 2,
-  angle: 0,     
-  speed: 0,     
-  angVel: 0,   
+  angle: 0,
+  speed: 0,
+  angVel: 0,
 };
 
 const motion = {
-  maxSpeed: 260,      
-  accel: 420,         
-  decel: 520,         
-  maxTurnRate: 3.4,   
-  turnDamping: 9,      
-  arriveRadius: 70,    
-  stopRadius: 26,     
+  maxSpeed: 260,
+  accel: 420,
+  decel: 520,
+  maxTurnRate: 3.4,
+  turnDamping: 9,
+  arriveRadius: 70,
+  stopRadius: 26,
 };
 
 function updateSteering(dt){
@@ -227,16 +224,16 @@ const spine = {
   headAngle: 0,
   chestAngle: 0,
   hipAngle: 0,
-  lean: 0,       
+  lean: 0,
 };
 
 const SPINE_TUNING = {
-  headHalfLife: 0.10,    
-  headMaxOffset: 1.9,    
-  chestHalfLife: 0.05,   
-  hipHalfLife: 0.22,      
+  headHalfLife: 0.10,
+  headMaxOffset: 1.9,
+  chestHalfLife: 0.05,
+  hipHalfLife: 0.22,
   leanHalfLife: 0.12,
-  leanPerAngVel: 9,       
+  leanPerAngVel: 9,
   maxLean: 10,
 };
 
@@ -246,7 +243,6 @@ function updateSpine(dt){
   const targetAngle = Math.atan2(dy, dx);
 
   spine.chestAngle = angleLerp(spine.chestAngle, body.angle, easeFactor(SPINE_TUNING.chestHalfLife, dt));
-
   spine.hipAngle = angleLerp(spine.hipAngle, spine.chestAngle, easeFactor(SPINE_TUNING.hipHalfLife, dt));
 
   let wantHead = angleLerp(spine.headAngle, targetAngle, easeFactor(SPINE_TUNING.headHalfLife, dt));
@@ -264,43 +260,189 @@ const spineLink = document.getElementById('spineLink');
 const shadow = document.getElementById('shadow');
 
 const RIG = {
-  chestOffset: 20, 
-  hipOffset: 35,     
-  headOffset: 35,    
+  chestOffset: 20,
+  hipOffset: 35,
+  headOffset: 35,
 };
 
-function render(){
+const pose = {
+  chest: { x: 0, y: 0, angle: 0 },
+  hip: { x: 0, y: 0, angle: 0 },
+  head: { x: 0, y: 0, angle: 0 },
+};
+
+function computePose(){
   const chestCos = Math.cos(spine.chestAngle), chestSin = Math.sin(spine.chestAngle);
   const hipCos = Math.cos(spine.hipAngle), hipSin = Math.sin(spine.hipAngle);
   const chestPerpX = -chestSin, chestPerpY = chestCos;
   const hipPerpX = -hipSin, hipPerpY = hipCos;
-  const chestX = body.x + chestCos * RIG.chestOffset + chestPerpX * spine.lean;
-  const chestY = body.y + chestSin * RIG.chestOffset + chestPerpY * spine.lean;
-  const hipX = body.x - hipCos * RIG.hipOffset + hipPerpX * spine.lean * 0.4;
-  const hipY = body.y - hipSin * RIG.hipOffset + hipPerpY * spine.lean * 0.4;
-  const headX = chestX + Math.cos(spine.headAngle) * RIG.headOffset;
-  const headY = chestY + Math.sin(spine.headAngle) * RIG.headOffset;
 
-  chestGroup.setAttribute('transform', `translate(${chestX},${chestY}) rotate(${spine.chestAngle * 180 / Math.PI})`);
-  hipGroup.setAttribute('transform', `translate(${hipX},${hipY}) rotate(${spine.hipAngle * 180 / Math.PI})`);
-  headGroup.setAttribute('transform', `translate(${headX},${headY}) rotate(${spine.headAngle * 180 / Math.PI})`);
+  pose.chest.x = body.x + chestCos * RIG.chestOffset + chestPerpX * spine.lean;
+  pose.chest.y = body.y + chestSin * RIG.chestOffset + chestPerpY * spine.lean;
+  pose.chest.angle = spine.chestAngle;
 
-  const midX = (chestX + hipX) / 2, midY = (chestY + hipY) / 2;
-  spineLink.setAttribute('d', `M ${hipX},${hipY} Q ${midX},${midY} ${chestX},${chestY}`);
+  pose.hip.x = body.x - hipCos * RIG.hipOffset + hipPerpX * spine.lean * 0.4;
+  pose.hip.y = body.y - hipSin * RIG.hipOffset + hipPerpY * spine.lean * 0.4;
+  pose.hip.angle = spine.hipAngle;
+
+  pose.head.x = pose.chest.x + Math.cos(spine.headAngle) * RIG.headOffset;
+  pose.head.y = pose.chest.y + Math.sin(spine.headAngle) * RIG.headOffset;
+  pose.head.angle = spine.headAngle;
+}
+
+const GAIT = {
+  baseStride: 34,
+  duty: 0.6,
+  liftHeight: 7,
+};
+
+const legDefs = [
+  { id: 'legFrontLeft',  parent: 'chest', attach: { x: 6,  y: -17 }, phaseOffset: 0.0, upper: 19, lower: 21, side: -1 },
+  { id: 'legFrontRight', parent: 'chest', attach: { x: 6,  y: 17  }, phaseOffset: 0.5, upper: 19, lower: 21, side: 1  },
+  { id: 'legBackLeft',   parent: 'hip',   attach: { x: -8, y: -15 }, phaseOffset: 0.5, upper: 20, lower: 23, side: -1 },
+  { id: 'legBackRight',  parent: 'hip',   attach: { x: -8, y: 15  }, phaseOffset: 0.0, upper: 20, lower: 23, side: 1  },
+];
+
+function svgEl(name, attrs){
+  const el = document.createElementNS('http://www.w3.org/2000/svg', name);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+function createLegElements(group){
+  const upperBone = svgEl('line', { class: 'bone', 'stroke-width': 4.4, 'stroke-linecap': 'round' });
+  const lowerBone = svgEl('line', { class: 'bone', 'stroke-width': 3.4, 'stroke-linecap': 'round' });
+  const baseJoint = svgEl('circle', { class: 'joint', r: 3.4 });
+  const kneeJoint = svgEl('circle', { class: 'joint', r: 2.8 });
+  const paw = svgEl('ellipse', { class: 'joint', rx: 4.2, ry: 3.4 });
+  group.append(upperBone, lowerBone, baseJoint, kneeJoint, paw);
+  return { upperBone, lowerBone, baseJoint, kneeJoint, paw };
+}
+
+const legs = legDefs.map(def => Object.assign({}, def, {
+  el: createLegElements(document.getElementById(def.id)),
+  plantedX: undefined, plantedY: undefined,
+  swingStartX: 0, swingStartY: 0, swingTargetX: 0, swingTargetY: 0,
+  swinging: false,
+  footX: 0, footY: 0, lift: 0,
+  prevCont: undefined,
+}));
+
+function attachWorld(leg){
+  const p = leg.parent === 'chest' ? pose.chest : pose.hip;
+  const c = Math.cos(p.angle), s = Math.sin(p.angle);
+  return {
+    x: p.x + c * leg.attach.x - s * leg.attach.y,
+    y: p.y + s * leg.attach.x + c * leg.attach.y,
+  };
+}
+
+let gaitPhase = 0;
+
+function updateGait(dt){
+  const speedRatio = clamp(body.speed / motion.maxSpeed, 0, 1);
+  const strideLength = GAIT.baseStride * (0.4 + 0.6 * speedRatio);
+  const freq = body.speed / Math.max(strideLength, 1);
+  gaitPhase += freq * dt;
+
+  for (const leg of legs) updateLeg(leg, strideLength);
+}
+
+function updateLeg(leg, strideLength){
+  const duty = GAIT.duty;
+  const cont = gaitPhase + leg.phaseOffset;
+  const prevCont = leg.prevCont === undefined ? cont : leg.prevCont;
+  const cycleNow = Math.floor(cont);
+  const cyclePrev = Math.floor(prevCont);
+  const within = cont - cycleNow;
+  const prevWithin = prevCont - cyclePrev;
+
+  const att = attachWorld(leg);
+  if (leg.plantedX === undefined){ leg.plantedX = att.x; leg.plantedY = att.y; }
+
+  if (cycleNow > cyclePrev){
+    leg.plantedX = leg.swingTargetX;
+    leg.plantedY = leg.swingTargetY;
+    leg.swinging = false;
+  } else if (prevWithin < duty && within >= duty){
+    leg.swinging = true;
+    leg.swingStartX = leg.plantedX;
+    leg.swingStartY = leg.plantedY;
+    const parent = leg.parent === 'chest' ? pose.chest : pose.hip;
+    const fwdX = Math.cos(parent.angle), fwdY = Math.sin(parent.angle);
+    leg.swingTargetX = att.x + fwdX * strideLength * 0.5;
+    leg.swingTargetY = att.y + fwdY * strideLength * 0.5;
+  }
+
+  if (leg.swinging){
+    const t = clamp((within - duty) / (1 - duty), 0, 1);
+    const te = t * t * (3 - 2 * t);
+    leg.footX = lerp(leg.swingStartX, leg.swingTargetX, te);
+    leg.footY = lerp(leg.swingStartY, leg.swingTargetY, te);
+    leg.lift = Math.sin(t * Math.PI) * GAIT.liftHeight;
+  } else {
+    leg.footX = leg.plantedX;
+    leg.footY = leg.plantedY;
+    leg.lift = 0;
+  }
+
+  leg.prevCont = cont;
+  leg.attX = att.x;
+  leg.attY = att.y;
+}
+
+function solveKnee(baseX, baseY, targetX, targetY, upperLen, lowerLen, side){
+  let dx = targetX - baseX, dy = targetY - baseY;
+  let dist = Math.hypot(dx, dy);
+  const maxReach = upperLen + lowerLen - 0.5;
+  const minReach = Math.abs(upperLen - lowerLen) + 0.5;
+  dist = clamp(dist, minReach, maxReach);
+  const baseAngle = Math.atan2(dy, dx);
+  const cosA = clamp((upperLen * upperLen + dist * dist - lowerLen * lowerLen) / (2 * upperLen * dist), -1, 1);
+  const a = Math.acos(cosA);
+  const kneeAngle = baseAngle + a * side;
+  return { x: baseX + Math.cos(kneeAngle) * upperLen, y: baseY + Math.sin(kneeAngle) * upperLen };
+}
+
+function drawLeg(leg){
+  const liftedX = leg.footX;
+  const liftedY = leg.footY - leg.lift;
+  const knee = solveKnee(leg.attX, leg.attY, liftedX, liftedY, leg.upper, leg.lower, leg.side);
+  const { upperBone, lowerBone, baseJoint, kneeJoint, paw } = leg.el;
+  upperBone.setAttribute('x1', leg.attX); upperBone.setAttribute('y1', leg.attY);
+  upperBone.setAttribute('x2', knee.x);   upperBone.setAttribute('y2', knee.y);
+  lowerBone.setAttribute('x1', knee.x);   lowerBone.setAttribute('y1', knee.y);
+  lowerBone.setAttribute('x2', liftedX);  lowerBone.setAttribute('y2', liftedY);
+  baseJoint.setAttribute('cx', leg.attX); baseJoint.setAttribute('cy', leg.attY);
+  kneeJoint.setAttribute('cx', knee.x);   kneeJoint.setAttribute('cy', knee.y);
+  paw.setAttribute('cx', liftedX);        paw.setAttribute('cy', liftedY);
+  paw.setAttribute('opacity', leg.swinging ? 0.85 + 0.15 * (leg.lift / GAIT.liftHeight) : 1);
+}
+
+function render(){
+  chestGroup.setAttribute('transform', `translate(${pose.chest.x},${pose.chest.y}) rotate(${pose.chest.angle * 180 / Math.PI})`);
+  hipGroup.setAttribute('transform', `translate(${pose.hip.x},${pose.hip.y}) rotate(${pose.hip.angle * 180 / Math.PI})`);
+  headGroup.setAttribute('transform', `translate(${pose.head.x},${pose.head.y}) rotate(${pose.head.angle * 180 / Math.PI})`);
+
+  const midX = (pose.chest.x + pose.hip.x) / 2, midY = (pose.chest.y + pose.hip.y) / 2;
+  spineLink.setAttribute('d', `M ${pose.hip.x},${pose.hip.y} Q ${midX},${midY} ${pose.chest.x},${pose.chest.y}`);
+
+  for (const leg of legs) drawLeg(leg);
 
   shadow.setAttribute('cx', body.x);
   shadow.setAttribute('cy', body.y + 4);
 }
 
-// Main loop
 let lastTime = performance.now();
 function tick(now){
   let dt = (now - lastTime) / 1000;
-  dt = Math.min(dt, 1 / 30); 
+  dt = Math.min(dt, 1 / 30);
   lastTime = now;
 
   updateSteering(dt);
   updateSpine(dt);
+  computePose();
+  updateGait(dt);
   render();
 
   requestAnimationFrame(tick);
