@@ -419,6 +419,82 @@ function drawLeg(leg){
   paw.setAttribute('opacity', leg.swinging ? 0.85 + 0.15 * (leg.lift / GAIT.liftHeight) : 1);
 }
 
+const TAIL = {
+  count: 12,
+  segLength: 9.5,
+  attachLocal: { x: -20, y: 0 },
+};
+
+const tailGroup = document.getElementById('tail');
+const tailPoints = [];
+const tailSegEls = [];
+const tailJointEls = [];
+
+(function initTail(){
+  for (let i = 0; i <= TAIL.count; i++) tailPoints.push({ x: 0, y: 0 });
+  for (let i = 0; i < TAIL.count; i++){
+    const width = lerp(4.6, 1.3, i / TAIL.count);
+    tailSegEls.push(tailGroup.appendChild(svgEl('line', { class: 'bone', 'stroke-width': width, 'stroke-linecap': 'round' })));
+  }
+  for (let i = 0; i <= TAIL.count; i++){
+    const r = lerp(2.6, 1, i / TAIL.count);
+    tailJointEls.push(tailGroup.appendChild(svgEl('circle', { class: 'joint', r })));
+  }
+})();
+
+function tailBaseWorld(){
+  const c = Math.cos(pose.hip.angle), s = Math.sin(pose.hip.angle);
+  return {
+    x: pose.hip.x + c * TAIL.attachLocal.x - s * TAIL.attachLocal.y,
+    y: pose.hip.y + s * TAIL.attachLocal.x + c * TAIL.attachLocal.y,
+  };
+}
+
+function updateTail(dt, elapsedSeconds){
+  const base = tailBaseWorld();
+  tailPoints[0].x = base.x;
+  tailPoints[0].y = base.y;
+
+  const turnEnergy = clamp(Math.abs(body.angVel) * 3, 0, 7);
+
+  for (let i = 1; i <= TAIL.count; i++){
+    const prev = tailPoints[i - 1];
+    const cur = tailPoints[i];
+    let dx = cur.x - prev.x, dy = cur.y - prev.y;
+    let dist = Math.hypot(dx, dy) || 0.0001;
+    let dirX = dx / dist, dirY = dy / dist;
+
+    if (dist < 0.001){ dirX = -Math.cos(pose.hip.angle); dirY = -Math.sin(pose.hip.angle); dist = TAIL.segLength; }
+
+    let constrainedX = prev.x + dirX * TAIL.segLength;
+    let constrainedY = prev.y + dirY * TAIL.segLength;
+
+    const t = i / TAIL.count;
+    const perpX = -dirY, perpY = dirX;
+    const sway = Math.sin(elapsedSeconds * 1.6 + i * 0.55) * (0.6 + turnEnergy) * t;
+    constrainedX += perpX * sway;
+    constrainedY += perpY * sway;
+
+    const halfLife = lerp(0.03, 0.22, t);
+    const factor = easeFactor(halfLife, dt);
+    cur.x = lerp(cur.x, constrainedX, factor);
+    cur.y = lerp(cur.y, constrainedY, factor);
+  }
+}
+
+function drawTail(){
+  for (let i = 0; i < TAIL.count; i++){
+    const a = tailPoints[i], b = tailPoints[i + 1];
+    const seg = tailSegEls[i];
+    seg.setAttribute('x1', a.x); seg.setAttribute('y1', a.y);
+    seg.setAttribute('x2', b.x); seg.setAttribute('y2', b.y);
+  }
+  for (let i = 0; i <= TAIL.count; i++){
+    tailJointEls[i].setAttribute('cx', tailPoints[i].x);
+    tailJointEls[i].setAttribute('cy', tailPoints[i].y);
+  }
+}
+
 function render(){
   chestGroup.setAttribute('transform', `translate(${pose.chest.x},${pose.chest.y}) rotate(${pose.chest.angle * 180 / Math.PI})`);
   hipGroup.setAttribute('transform', `translate(${pose.hip.x},${pose.hip.y}) rotate(${pose.hip.angle * 180 / Math.PI})`);
@@ -428,21 +504,25 @@ function render(){
   spineLink.setAttribute('d', `M ${pose.hip.x},${pose.hip.y} Q ${midX},${midY} ${pose.chest.x},${pose.chest.y}`);
 
   for (const leg of legs) drawLeg(leg);
+  drawTail();
 
   shadow.setAttribute('cx', body.x);
   shadow.setAttribute('cy', body.y + 4);
 }
 
 let lastTime = performance.now();
+const startTime = lastTime;
 function tick(now){
   let dt = (now - lastTime) / 1000;
   dt = Math.min(dt, 1 / 30);
   lastTime = now;
+  const elapsedSeconds = (now - startTime) / 1000;
 
   updateSteering(dt);
   updateSpine(dt);
   computePose();
   updateGait(dt);
+  updateTail(dt, elapsedSeconds);
   render();
 
   requestAnimationFrame(tick);
